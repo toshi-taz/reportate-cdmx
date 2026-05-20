@@ -4,6 +4,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from anthropic import Anthropic
 from dotenv import load_dotenv
+from db import save_report, get_reports as db_get_reports
 
 load_dotenv()
 
@@ -34,7 +35,7 @@ def health():
 
 @app.route("/api/reports", methods=["GET"])
 def get_reports():
-    return jsonify([])
+    return jsonify(db_get_reports())
 
 
 @app.route("/api/analyze", methods=["POST"])
@@ -45,10 +46,26 @@ def analyze():
 
     image_data = data["image"]
     media_type = data["media_type"]
+    lat = data.get("lat")
+    lng = data.get("lng")
 
     # Strip data URL prefix if present
     if "," in image_data:
         image_data = image_data.split(",", 1)[1]
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key or api_key == "mock":
+        app.logger.info("MOCK MODE: returning test response")
+        analysis = {
+            "category": "bache",
+            "severity": "high",
+            "description": "Bache de aproximadamente 40cm de diámetro en pavimento deteriorado. Representa riesgo para vehículos y peatones.",
+            "solution": "Reparación asfáltica de emergencia con bacheo en frío, señalización temporal inmediata.",
+            "authority": "Alcaldía Cuauhtémoc — Dirección de Obras",
+            "impact_score": 7,
+            "hashtags": ["#CDMX", "#Bache", "#AlcaldiaCuauhtemoc", "#ObrasPublicas"]
+        }
+        return jsonify(save_report(analysis, lat, lng, image_data))
 
     try:
         response = client.messages.create(
@@ -76,8 +93,8 @@ def analyze():
             ],
         )
 
-        result = json.loads(response.content[0].text)
-        return jsonify(result)
+        analysis = json.loads(response.content[0].text)
+        return jsonify(save_report(analysis, lat, lng, image_data))
 
     except json.JSONDecodeError:
         return jsonify({"error": "Failed to parse model response as JSON"}), 500
